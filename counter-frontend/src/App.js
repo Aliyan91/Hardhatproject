@@ -9,13 +9,15 @@ function App() {
   const [count, setCount] = useState(0);
   const [events, setEvents] = useState([]);
   const [contract, setContract] = useState(null);
+  const [connected, setConnected] = useState(false);
 
-  useEffect(() => {
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    let counterContract;
-    provider.send("eth_requestAccounts", []).then(async () => {
+  const connectWallet = async () => {
+    if (window.ethereum) {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send("eth_requestAccounts", []);
+      setConnected(true);
       const signer = await provider.getSigner();
-      counterContract = new ethers.Contract(
+      const counterContract = new ethers.Contract(
         CONTRACT_ADDRESS,
         counterABI.abi,
         signer
@@ -41,12 +43,46 @@ function App() {
         setEvents((prev) => [{ type: "Reset", by }, ...prev]);
         setCount(0);
       });
-    });
+    }
+  };
+
+  useEffect(() => {
+    // Optionally, check if already connected
+    if (window.ethereum) {
+      window.ethereum.request({ method: "eth_accounts" }).then((accounts) => {
+        if (accounts.length > 0) {
+          setConnected(true);
+          connectWallet();
+        }
+      });
+    }
+    // Listen for network changes
+    if (window.ethereum) {
+      window.ethereum.on("chainChanged", () => {
+        window.location.reload();
+      });
+    }
+    // Listen for account changes
+    if (window.ethereum) {
+      window.ethereum.on("accountsChanged", () => {
+        window.location.reload();
+      });
+    }
+    // Cleanup listeners on unmount
     return () => {
-      if (counterContract) {
-        counterContract.removeAllListeners();
+      if (window.ethereum && window.ethereum.removeListener) {
+        window.ethereum.removeListener("chainChanged", () => {
+          window.location.reload();
+        });
+        window.ethereum.removeListener("accountsChanged", () => {
+          window.location.reload();
+        });
+      }
+      if (contract) {
+        contract.removeAllListeners();
       }
     };
+    // eslint-disable-next-line
   }, []);
 
   const handleIncrement = async () => {
@@ -64,6 +100,15 @@ function App() {
       await contract.reset();
     }
   };
+
+  if (!connected) {
+    return (
+      <div style={{ padding: 32 }}>
+        <h1>Counter DApp</h1>
+        <button onClick={connectWallet}>Connect Wallet</button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: 32 }}>
