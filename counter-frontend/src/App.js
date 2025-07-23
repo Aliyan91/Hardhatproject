@@ -1,53 +1,101 @@
 import React, { useEffect, useState } from "react";
 import { ethers } from "ethers";
 import counterABI from "./CounterABI.json";
+import "./App.css";
 
 // Replace with your deployed contract address
-const CONTRACT_ADDRESS = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0";
+const CONTRACT_ADDRESS = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512";
+
+// Helper to convert BigNumber timestamp to readable format
+const formatTimestamp = (timestamp) => {
+  try {
+    const ts = parseInt(timestamp.toString()) * 1000;
+    return new Date(ts).toLocaleString();
+  } catch (e) {
+    return "Invalid Date";
+  }
+};
 
 function App() {
   const [count, setCount] = useState(0);
   const [events, setEvents] = useState([]);
   const [contract, setContract] = useState(null);
   const [connected, setConnected] = useState(false);
+  const [error, setError] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const [account, setAccount] = useState("");
+  const [balance, setBalance] = useState("");
 
   const connectWallet = async () => {
-    if (window.ethereum) {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      await provider.send("eth_requestAccounts", []);
-      setConnected(true);
-      const signer = await provider.getSigner();
-      const counterContract = new ethers.Contract(
-        CONTRACT_ADDRESS,
-        counterABI.abi,
-        signer
-      );
-      setContract(counterContract);
-      counterContract.getCount().then(setCount);
-      // Listen to events
-      counterContract.on("Increment", (by, newValue) => {
-        setEvents((prev) => [
-          { type: "Increment", by, newValue: newValue.toString() },
-          ...prev,
-        ]);
-        setCount(Number(newValue));
-      });
-      counterContract.on("Decrement", (by, newValue) => {
-        setEvents((prev) => [
-          { type: "Decrement", by, newValue: newValue.toString() },
-          ...prev,
-        ]);
-        setCount(Number(newValue));
-      });
-      counterContract.on("Reset", (by) => {
-        setEvents((prev) => [{ type: "Reset", by }, ...prev]);
-        setCount(0);
-      });
+    if (window.ethereum && !connecting) {
+      setConnecting(true);
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        await provider.send("eth_requestAccounts", []);
+        setConnected(true);
+        const signer = await provider.getSigner();
+        const address = await signer.getAddress();
+        setAccount(address);
+        const bal = await provider.getBalance(address);
+        setBalance(ethers.formatEther(bal));
+        const counterContract = new ethers.Contract(
+          CONTRACT_ADDRESS,
+          counterABI.abi,
+          signer
+        );
+        setContract(counterContract);
+
+        // Set initial count
+        counterContract.getCount().then((value) => setCount(Number(value)));
+
+        // Listen to events
+        counterContract.on("Increment", (by, newValue, timestamp) => {
+          setEvents((prev) => [
+            {
+              type: "Increment",
+              by,
+              newValue: newValue.toString(),
+              timestamp,
+            },
+            ...prev,
+          ]);
+          setCount(Number(newValue));
+        });
+
+        counterContract.on("Decrement", (by, newValue, timestamp) => {
+          setEvents((prev) => [
+            {
+              type: "Decrement",
+              by,
+              newValue: newValue.toString(),
+              timestamp,
+            },
+            ...prev,
+          ]);
+          setCount(Number(newValue));
+        });
+
+        counterContract.on("Reset", (by, timestamp) => {
+          setEvents((prev) => [{ type: "Reset", by, timestamp }, ...prev]);
+          setCount(0);
+        });
+      } catch (err) {
+        setError(err.reason || err.message || "Transaction failed");
+      }
+      setConnecting(false);
     }
   };
 
+  const disconnectWallet = () => {
+    setConnected(false);
+    setAccount("");
+    setBalance("");
+    setContract(null);
+    setEvents([]);
+    setCount(0);
+  };
+
   useEffect(() => {
-    // Optionally, check if already connected
     if (window.ethereum) {
       window.ethereum.request({ method: "eth_accounts" }).then((accounts) => {
         if (accounts.length > 0) {
@@ -56,19 +104,16 @@ function App() {
         }
       });
     }
-    // Listen for network changes
+
     if (window.ethereum) {
       window.ethereum.on("chainChanged", () => {
         window.location.reload();
       });
-    }
-    // Listen for account changes
-    if (window.ethereum) {
       window.ethereum.on("accountsChanged", () => {
         window.location.reload();
       });
     }
-    // Cleanup listeners on unmount
+
     return () => {
       if (window.ethereum && window.ethereum.removeListener) {
         window.ethereum.removeListener("chainChanged", () => {
@@ -78,6 +123,7 @@ function App() {
           window.location.reload();
         });
       }
+
       if (contract) {
         contract.removeAllListeners();
       }
@@ -86,52 +132,136 @@ function App() {
   }, []);
 
   const handleIncrement = async () => {
+    setError("");
     if (contract) {
-      await contract.increment();
+      try {
+        await contract.increment();
+      } catch (err) {
+        setError(err.reason || err.message || "Transaction failed");
+      }
     }
   };
+
   const handleDecrement = async () => {
+    setError("");
     if (contract) {
-      await contract.decrement();
+      try {
+        await contract.decrement();
+      } catch (err) {
+        setError(err.reason || err.message || "Transaction failed");
+      }
     }
   };
+
   const handleReset = async () => {
+    setError("");
     if (contract) {
-      await contract.reset();
+      try {
+        await contract.reset();
+      } catch (err) {
+        setError(err.reason || err.message || "Transaction failed");
+      }
     }
   };
 
   if (!connected) {
     return (
-      <div style={{ padding: 32 }}>
-        <h1>Counter DApp</h1>
-        <button onClick={connectWallet}>Connect Wallet</button>
+      <div className="app-container">
+        <div className="sidebar">
+          <h2>Counter DApp</h2>
+          <button
+            className="connect-btn"
+            onClick={connectWallet}
+            disabled={connecting}
+          >
+            Connect Wallet
+          </button>
+        </div>
+        <div className="main-content">
+          <h1>Welcome!</h1>
+          <p>Please connect your wallet to use the Counter DApp.</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: 32 }}>
-      <h1>Counter DApp</h1>
-      <h2>Count: {count}</h2>
-      <button onClick={handleIncrement}>Increment</button>
-      <button onClick={handleDecrement} style={{ marginLeft: 8 }}>
-        Decrement
-      </button>
-      <button onClick={handleReset} style={{ marginLeft: 8 }}>
-        Reset
-      </button>
-      <h3>Events</h3>
-      <ul>
-        {events.map((event, idx) => (
-          <li key={idx}>
-            {event.type} by {event.by}
-            {event.newValue !== undefined
-              ? `, new value: ${event.newValue}`
-              : ""}
-          </li>
-        ))}
-      </ul>
+    <div className="app-container">
+      <div className="sidebar">
+        <h2>Counter DApp</h2>
+        <div className="account-info">
+          <div>
+            <strong>Account:</strong>
+            <br />{" "}
+            <span className="mono">
+              {account.slice(0, 6)}...{account.slice(-4)}
+            </span>
+          </div>
+          <div>
+            <strong>Balance:</strong>
+            <br />{" "}
+            <span className="mono">{Number(balance).toFixed(4)} ETH</span>
+          </div>
+        </div>
+        <button className="disconnect-btn" onClick={disconnectWallet}>
+          Disconnect
+        </button>
+      </div>
+      <div className="main-content">
+        <h1>Counter</h1>
+        <div className="counter-box">
+          <span className="count">{count}</span>
+          {error && <div className="error-msg">{error}</div>}
+          <div className="button-row">
+            <button className="action-btn increment" onClick={handleIncrement}>
+              Increment
+            </button>
+            <button
+              className="action-btn decrement"
+              onClick={handleDecrement}
+              disabled={count === 0}
+            >
+              Decrement
+            </button>
+            <button className="action-btn reset" onClick={handleReset}>
+              Reset
+            </button>
+          </div>
+        </div>
+        <div className="events-section">
+          <h3>Events</h3>
+          <ul className="events-list">
+            {events.map((event, idx) => (
+              <li
+                key={idx}
+                className={`event-item ${event.type.toLowerCase()}`}
+              >
+                <span className="event-type">{event.type}</span> by{" "}
+                <span className="mono">
+                  {event.by.slice(0, 6)}...{event.by.slice(-4)}
+                </span>
+                {event.newValue !== undefined ? (
+                  <span>
+                    , new value: <span className="mono">{event.newValue}</span>
+                  </span>
+                ) : (
+                  ""
+                )}
+                {event.timestamp !== undefined ? (
+                  <span>
+                    , time:{" "}
+                    <span className="mono">
+                      {formatTimestamp(event.timestamp)}
+                    </span>
+                  </span>
+                ) : (
+                  ""
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
     </div>
   );
 }
